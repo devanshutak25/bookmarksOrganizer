@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookmark Organizer</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        // Apply saved theme before paint to prevent flash
+        const saved = localStorage.getItem('theme');
+        if (saved) document.documentElement.setAttribute('data-theme', saved);
+    </script>
+</head>
+<body>
+    <header>
+        <nav>
+            <a href="#import" class="nav-link" data-page="import">Import</a>
+            <a href="#triage" class="nav-link" data-page="triage">Triage</a>
+            <a href="#organize" class="nav-link" data-page="organize">Organize</a>
+            <a href="#export" class="nav-link" data-page="export">Export</a>
+            <button id="theme-toggle" class="theme-toggle" title="Toggle dark/light mode">
+                <span class="theme-icon"></span>
+            </button>
+        </nav>
+    </header>
+    <main id="app"></main>
+    <div id="toast-container" class="toast-container"></div>
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
