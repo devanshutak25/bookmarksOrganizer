@@ -12,7 +12,7 @@ from routers import import_router, bookmarks, tags, state, folders, export, sett
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    app.state.http_client = httpx.AsyncClient(timeout=10.0, follow_redirects=True, max_redirects=5)
+    app.state.http_client = httpx.AsyncClient(timeout=120.0, follow_redirects=True, max_redirects=5)
     # Job tracking state
     app.state.scrape_task = None
     app.state.scrape_cancel = None

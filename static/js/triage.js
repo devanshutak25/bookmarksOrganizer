@@ -1,4 +1,4 @@
-import { getBookmarkIds, getBookmark, patchBookmark, getProgress, searchTags } from './api.js';
+import { getBookmarkIds, getBookmark, getBookmarkSummaries, patchBookmark, getProgress, searchTags, getTags } from './api.js';
 import { showToast } from './app.js';
 
 export function renderTriagePage() {
@@ -31,6 +31,10 @@ export function renderTriagePage() {
                             <button id="btn-next" class="btn btn-sm" title="Right arrow">Next &rarr;</button>
                         </div>
                     </div>
+                    <div class="bookmark-dropdown-wrap">
+                        <input type="text" id="bookmark-search" class="input" placeholder="Jump to bookmark...">
+                        <div id="bookmark-dropdown" class="bookmark-dropdown" hidden></div>
+                    </div>
                     <div id="triage-url" class="triage-url"></div>
                     <label class="field-label">Title</label>
                     <input type="text" id="triage-title" class="input" placeholder="Enter a title">
@@ -46,7 +50,12 @@ export function renderTriagePage() {
 
                     <div id="ai-suggestions" class="ai-suggestions" hidden>
                         <label class="field-label">AI suggests:</label>
-                        <div id="ai-suggestion-pills" class="tag-pills"></div>
+                        <div id="ai-suggestion-pills" class="tag-pills ai-suggestions-pool"></div>
+                    </div>
+
+                    <div id="all-tags-section" class="all-tags-section" hidden>
+                        <label class="field-label">All Tags</label>
+                        <div id="all-tags-pool" class="all-tags-pool"></div>
                     </div>
 
                     <div class="action-btns">
@@ -71,6 +80,7 @@ export function renderTriagePage() {
             let currentTags = [];
             let autoSaveTimer = null;
             let activeFilter = ['pending', 'tagged'];
+            let iframeGeneration = 0;
 
             const previewEl = document.getElementById('triage-preview');
             const emptyEl = document.getElementById('triage-empty');
@@ -84,7 +94,13 @@ export function renderTriagePage() {
             const autocompleteEl = document.getElementById('tag-autocomplete');
             const aiSuggestionsEl = document.getElementById('ai-suggestions');
             const aiPillsEl = document.getElementById('ai-suggestion-pills');
+            const allTagsSection = document.getElementById('all-tags-section');
+            const allTagsPool = document.getElementById('all-tags-pool');
             const filterBar = document.getElementById('filter-bar');
+            const bookmarkSearchInput = document.getElementById('bookmark-search');
+            const bookmarkDropdown = document.getElementById('bookmark-dropdown');
+            let allTags = [];
+            let bookmarkSummaries = [];
 
             // --- Filter bar ---
             filterBar.addEventListener('click', async (e) => {
@@ -95,6 +111,7 @@ export function renderTriagePage() {
                 activeFilter = btn.dataset.filter.split(',');
                 const hasData = await loadIds();
                 if (hasData) {
+                    await loadSummaries();
                     await goTo(0);
                 } else {
                     previewEl.innerHTML = '';
@@ -138,19 +155,10 @@ export function renderTriagePage() {
                 const bm = currentBookmark;
 
                 const faviconHtml = bm.favicon
-                    ? `<img src="${escHtml(bm.favicon)}" class="preview-favicon" alt="">`
-                    : '<div class="preview-favicon placeholder-favicon"></div>';
+                    ? `<img src="${escHtml(bm.favicon)}" class="iframe-toolbar-favicon" alt="">`
+                    : '<div class="iframe-toolbar-favicon placeholder-favicon"></div>';
 
                 const displayTitle = bm.custom_title || bm.meta_title || bm.original_title;
-                const unreachable = bm.meta_title === '[UNREACHABLE]';
-
-                let metaSection = '';
-                if (bm.meta_description) {
-                    metaSection = `<p class="preview-description">${escHtml(bm.meta_description)}</p>`;
-                }
-                if (bm.meta_title && bm.meta_title !== bm.original_title && !unreachable) {
-                    metaSection += `<p class="preview-meta-diff"><span class="subtle">Page title:</span> ${escHtml(bm.meta_title)}</p>`;
-                }
 
                 let statusBadge = '';
                 if (bm.status !== 'pending') {
@@ -158,20 +166,37 @@ export function renderTriagePage() {
                     statusBadge = `<span class="badge ${cls}">${bm.status}</span>`;
                 }
 
+                const canIframe = isIframeableUrl(bm.url);
+                const generation = ++iframeGeneration;
+
                 previewEl.innerHTML = `
-                    <div class="preview-card">
-                        <div class="preview-header">
+                    <div class="iframe-container">
+                        <div class="iframe-toolbar">
                             ${faviconHtml}
-                            <h2 class="preview-title">${escHtml(displayTitle)}</h2>
+                            <span class="iframe-toolbar-title" title="${escHtml(displayTitle)}">${escHtml(truncateUrl(displayTitle, 60))}</span>
                             ${statusBadge}
+                            <span class="iframe-toolbar-spacer"></span>
+                            <a href="${escHtml(bm.url)}" target="_blank" rel="noopener" class="btn btn-sm btn-open">Open in New Tab &#8599;</a>
                         </div>
-                        ${unreachable ? '<div class="badge badge-warn">Site may be down</div>' : ''}
-                        <a href="${escHtml(bm.url)}" target="_blank" rel="noopener" class="preview-url">${escHtml(truncateUrl(bm.url))}</a>
-                        ${bm.original_folder ? `<p class="preview-folder subtle">${escHtml(bm.original_folder)}</p>` : ''}
-                        ${metaSection}
-                        <a href="${escHtml(bm.url)}" target="_blank" rel="noopener" class="btn btn-open">Open in New Tab &#8599;</a>
+                        <div class="iframe-wrapper">
+                            ${canIframe
+                                ? `<iframe sandbox="allow-scripts allow-same-origin allow-forms" src="${escHtml(bm.url)}"></iframe>`
+                                : ''}
+                            <div class="iframe-overlay${canIframe ? ' hidden' : ''}">
+                                <div class="iframe-overlay-msg">
+                                    ${canIframe ? 'This site blocks embedding.' : 'Cannot preview this URL type.'}
+                                    <br><a href="${escHtml(bm.url)}" target="_blank" rel="noopener">Open in New Tab &#8599;</a>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 `;
+
+                if (canIframe) {
+                    const iframe = previewEl.querySelector('iframe');
+                    const overlay = previewEl.querySelector('.iframe-overlay');
+                    setupIframeLoadDetection(iframe, overlay, generation);
+                }
 
                 titleInput.value = bm.custom_title || bm.meta_title || bm.original_title || '';
                 urlEl.innerHTML = `<a href="${escHtml(bm.url)}" target="_blank" rel="noopener">${escHtml(truncateUrl(bm.url, 50))}</a>`;
@@ -201,6 +226,21 @@ export function renderTriagePage() {
                 tagsEl.innerHTML = currentTags
                     .map(t => `<span class="tag-pill" style="background:${tagColor(t)}">${escHtml(t)}<button class="tag-remove" data-tag="${escHtml(t)}">&times;</button></span>`)
                     .join('');
+                renderAllTags();
+            }
+
+            function renderAllTags() {
+                if (allTags.length === 0) {
+                    allTagsSection.hidden = true;
+                    return;
+                }
+                allTagsSection.hidden = false;
+                allTagsPool.innerHTML = allTags
+                    .map(t => {
+                        const active = currentTags.includes(t.name);
+                        return `<button class="pool-tag-btn${active ? ' active' : ''}" data-tag="${escHtml(t.name)}" style="background:${tagColor(t.name)}">${escHtml(t.name)}</button>`;
+                    })
+                    .join('');
             }
 
             async function updateProgress() {
@@ -209,6 +249,13 @@ export function renderTriagePage() {
                     const done = p.tagged + p.dead + p.discarded;
                     const pct = p.total > 0 ? (done / p.total) * 100 : 0;
                     progressFill.style.width = `${pct}%`;
+                } catch { /* ignore */ }
+            }
+
+            async function refreshAllTags() {
+                try {
+                    allTags = await getTags();
+                    renderAllTags();
                 } catch { /* ignore */ }
             }
 
@@ -221,6 +268,7 @@ export function renderTriagePage() {
                             custom_title: titleInput.value.trim() || null,
                             tags: currentTags,
                         });
+                        refreshAllTags();
                     } catch (err) {
                         showToast(`Auto-save failed: ${err.message}`, 'error');
                     }
@@ -256,6 +304,7 @@ export function renderTriagePage() {
                         tags: currentTags,
                     });
                     showToast('Saved', 'success');
+                    refreshAllTags();
                 } catch (err) {
                     showToast(`Save failed: ${err.message}`, 'error');
                     return;
@@ -330,6 +379,17 @@ export function renderTriagePage() {
                 if (pill) addTag(pill.dataset.tag);
             });
 
+            allTagsPool.addEventListener('click', e => {
+                const btn = e.target.closest('.pool-tag-btn');
+                if (!btn) return;
+                const tag = btn.dataset.tag;
+                if (currentTags.includes(tag)) {
+                    removeTag(tag);
+                } else {
+                    addTag(tag);
+                }
+            });
+
             let acTimer = null;
             tagInput.addEventListener('input', () => {
                 const q = tagInput.value.trim();
@@ -378,6 +438,57 @@ export function renderTriagePage() {
                 }
             });
 
+            // --- Bookmark dropdown ---
+            function renderDropdown(items) {
+                if (items.length === 0) {
+                    bookmarkDropdown.hidden = true;
+                    return;
+                }
+                bookmarkDropdown.innerHTML = items
+                    .map(s => {
+                        const idx = ids.indexOf(s.id);
+                        const isActive = idx === currentIndex;
+                        return `<div class="bookmark-dropdown-item${isActive ? ' active' : ''}" data-index="${idx}">
+                            <span class="status-dot ${escHtml(s.status)}"></span>
+                            <span class="bm-title">${escHtml(s.title)}</span>
+                            <span class="bm-url">${escHtml(truncateUrl(s.url, 30))}</span>
+                        </div>`;
+                    })
+                    .join('');
+                bookmarkDropdown.hidden = false;
+            }
+
+            bookmarkSearchInput.addEventListener('focus', () => {
+                const q = bookmarkSearchInput.value.trim().toLowerCase();
+                const filtered = q
+                    ? bookmarkSummaries.filter(s => s.title.toLowerCase().includes(q) || s.url.toLowerCase().includes(q))
+                    : bookmarkSummaries;
+                renderDropdown(filtered);
+            });
+
+            bookmarkSearchInput.addEventListener('input', () => {
+                const q = bookmarkSearchInput.value.trim().toLowerCase();
+                const filtered = q
+                    ? bookmarkSummaries.filter(s => s.title.toLowerCase().includes(q) || s.url.toLowerCase().includes(q))
+                    : bookmarkSummaries;
+                renderDropdown(filtered);
+            });
+
+            bookmarkDropdown.addEventListener('click', e => {
+                const item = e.target.closest('.bookmark-dropdown-item');
+                if (!item) return;
+                const idx = parseInt(item.dataset.index, 10);
+                if (idx >= 0) goTo(idx);
+                bookmarkDropdown.hidden = true;
+                bookmarkSearchInput.value = '';
+            });
+
+            document.addEventListener('click', e => {
+                if (!e.target.closest('.bookmark-dropdown-wrap')) {
+                    bookmarkDropdown.hidden = true;
+                }
+            });
+
             // Keyboard shortcuts
             function onKeyDown(e) {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
@@ -393,11 +504,20 @@ export function renderTriagePage() {
             }
             document.addEventListener('keydown', onKeyDown);
 
+            async function loadSummaries() {
+                try {
+                    const result = await getBookmarkSummaries(activeFilter);
+                    bookmarkSummaries = result.items;
+                } catch { bookmarkSummaries = []; }
+            }
+
             // Init
             (async () => {
+                getTags().then(tags => { allTags = tags; }).catch(() => {});
                 await updateFilterCounts();
                 const hasData = await loadIds();
                 if (hasData) {
+                    await loadSummaries();
                     await goTo(0);
                 }
             })();
@@ -408,6 +528,35 @@ export function renderTriagePage() {
             };
         },
     };
+}
+
+// -- Iframe utilities --
+
+function isIframeableUrl(url) {
+    if (!url) return false;
+    try {
+        const u = new URL(url);
+        return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+function setupIframeLoadDetection(iframe, overlay, generation) {
+    let loaded = false;
+
+    iframe.addEventListener('load', () => {
+        loaded = true;
+        // If navigation moved on, ignore this callback
+        if (generation !== iframe.closest('.iframe-container')?.dataset.gen) return;
+    });
+
+    // Fallback: if no load event fires in 5s, assume blocked
+    setTimeout(() => {
+        if (!loaded && overlay) {
+            overlay.classList.remove('hidden');
+        }
+    }, 5000);
 }
 
 // -- Utilities --

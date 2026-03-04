@@ -1,22 +1,25 @@
 import json
+import logging
 import os
 import re
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gpt-oss:20b")
 AI_ENABLED = os.environ.get("AI_ENABLED", "true").lower() == "true"
 
-PROMPT_TEMPLATE = """You are a bookmark tagging assistant. Given webpage metadata, suggest 1-4 short, lowercase tags for categorization.
+SYSTEM_PROMPT = """You are a bookmark tagging assistant. Given webpage metadata, suggest 1-4 short, lowercase tags for categorization.
 
 Rules:
 - Tags must be lowercase, single words or hyphenated (e.g., "machine-learning")
-- Prefer REUSING existing tags from the list below when they fit
+- Prefer REUSING existing tags from the provided list when they fit
 - Only suggest new tags if nothing in the existing list is a good match
-- Return ONLY a JSON array of strings, nothing else
+- Return ONLY a JSON array of strings, nothing else"""
 
-Existing tags in use: {existing_tags}
+USER_TEMPLATE = """Existing tags in use: {existing_tags}
 
 Webpage:
 - URL: {url}
@@ -57,34 +60,42 @@ async def suggest_tags(
     client: httpx.AsyncClient,
 ) -> tuple[list[str] | None, str]:
     """
-    Call Ollama to get tag suggestions for a bookmark.
+    Call Ollama chat API to get tag suggestions for a bookmark.
+    Each call is a fresh chat conversation.
     Returns (suggestions, status) where status is 'done' or 'failed'.
     """
-    prompt = PROMPT_TEMPLATE.format(
+    user_message = USER_TEMPLATE.format(
         existing_tags=", ".join(existing_tags) if existing_tags else "(none yet)",
         url=url,
         title=title or "(no title)",
         description=description or "(no description)",
     )
 
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_message},
+    ]
+
     try:
         resp = await client.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=60.0,
+            f"{OLLAMA_URL}/api/chat",
+            json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
+            timeout=httpx.Timeout(120.0),
         )
         resp.raise_for_status()
         data = resp.json()
-        response_text = data.get("response", "")
+        response_text = data.get("message", {}).get("content", "")
+        logger.warning("Ollama response for %s: %s", url[:60], response_text[:200])
 
         tags = _parse_tag_response(response_text)
         if tags:
             return tags, "done"
         else:
+            logger.warning("Failed to parse tags from: %s", response_text[:200])
             return None, "failed"
 
-    except Exception:
-        # Per-bookmark failure (not global unreachable — that's checked at job level)
+    except Exception as e:
+        logger.error("Ollama chat error for %s: %s: %s", url[:60], type(e).__name__, e)
         return None, "failed"
 
 

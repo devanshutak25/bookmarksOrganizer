@@ -89,13 +89,11 @@ async def cancel_scrape(request: Request):
 
 async def _ai_suggest_worker(app):
     """Background worker that gets AI tag suggestions via Ollama."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     cancel_event = app.state.ai_cancel
     client = app.state.http_client
-
-    # Check Ollama availability first
-    available = await check_ollama_available(client)
-    if not available:
-        return  # Job aborted — status endpoint will show not running
 
     db = await get_db()
     try:
@@ -103,11 +101,11 @@ async def _ai_suggest_worker(app):
             """SELECT id, url, original_title, custom_title, meta_title, meta_description
                FROM bookmarks
                WHERE ai_suggestions IS NULL AND ai_status IS NULL
-                 AND meta_title IS NOT NULL AND meta_title != '[UNREACHABLE]'
                ORDER BY id"""
         )
         app.state.ai_total = len(rows)
         app.state.ai_completed = 0
+        logger.warning("AI worker: %d bookmarks to process", len(rows))
 
         # Get existing tags for the prompt
         tag_rows = await db.execute_fetchall("SELECT name FROM tags ORDER BY name")
@@ -117,7 +115,8 @@ async def _ai_suggest_worker(app):
             if cancel_event.is_set():
                 break
 
-            title = row["custom_title"] or row["meta_title"] or row["original_title"]
+            meta_title = row["meta_title"] if row["meta_title"] != "[UNREACHABLE]" else None
+            title = row["custom_title"] or meta_title or row["original_title"] or row["url"]
             description = row["meta_description"]
 
             suggestions, status = await suggest_tags(
@@ -150,7 +149,7 @@ async def _ai_suggest_worker(app):
 
 
 @router.post("/jobs/ai-suggest")
-async def start_ai_suggest(request: Request):
+async def start_ai_suggest(request: Request, retry_failed: bool = Query(default=False)):
     if not AI_ENABLED:
         return {"status": "skipped", "reason": "ai_disabled"}
 
@@ -167,10 +166,15 @@ async def start_ai_suggest(request: Request):
 
     db = await get_db()
     try:
+        if retry_failed:
+            await db.execute(
+                "UPDATE bookmarks SET ai_suggestions = NULL, ai_status = NULL WHERE ai_status = 'failed'"
+            )
+            await db.commit()
+
         rows = await db.execute_fetchall(
             """SELECT COUNT(*) as cnt FROM bookmarks
-               WHERE ai_suggestions IS NULL AND ai_status IS NULL
-                 AND meta_title IS NOT NULL AND meta_title != '[UNREACHABLE]'"""
+               WHERE ai_suggestions IS NULL AND ai_status IS NULL"""
         )
         total = rows[0]["cnt"]
     finally:

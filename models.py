@@ -28,6 +28,17 @@ class BookmarkIdsOut(BaseModel):
     ids: list[int]
 
 
+class BookmarkSummaryOut(BaseModel):
+    id: int
+    title: str
+    url: str
+    status: str
+
+
+class BookmarkSummariesOut(BaseModel):
+    items: list[BookmarkSummaryOut]
+
+
 class ProgressOut(BaseModel):
     total: int
     pending: int

@@ -1,4 +1,5 @@
 import { importFile, getState, startScrape, startAiSuggest, cancelScrape, cancelAiSuggest, getJobStatus } from './api.js';
+import { showToast } from './app.js';
 
 export function renderImportPage() {
     return {
@@ -55,6 +56,7 @@ export function renderImportPage() {
                 <div class="btn-row" style="margin-top:0.75rem">
                     <a href="#triage" class="btn btn-primary">Resume Triage</a>
                     <button id="btn-resume-scrape" class="btn btn-sm">Re-scrape Unreachable</button>
+                    <button id="btn-resume-ai" class="btn btn-sm">Run AI Suggestions</button>
                 </div>
             </div>
         </div>
@@ -163,6 +165,27 @@ export function renderImportPage() {
                 if (result.status === 'started') {
                     document.getElementById('resume-jobs').hidden = false;
                     startResumePoll();
+                }
+            });
+
+            document.getElementById('btn-resume-ai')?.addEventListener('click', async () => {
+                try {
+                    const result = await startAiSuggest(true);
+                    if (result.status === 'started' || result.status === 'already_running') {
+                        document.getElementById('resume-jobs').hidden = false;
+                        document.getElementById('resume-ai-row').hidden = false;
+                        startResumePoll();
+                        showToast('AI suggestions started', 'success');
+                    } else if (result.status === 'nothing_to_suggest') {
+                        showToast('No bookmarks need AI suggestions (scrape metadata first)', 'warn');
+                    } else if (result.status === 'skipped') {
+                        showToast(`AI skipped: ${result.reason === 'ollama_unavailable' ? 'Ollama not reachable' : 'AI disabled'}`, 'error');
+                    } else {
+                        showToast(`AI suggest: ${result.status}`, 'warn');
+                    }
+                } catch (err) {
+                    console.error('AI suggest error:', err);
+                    showToast(`AI suggest failed: ${err.message}`, 'error');
                 }
             });
 

@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, HTTPException, Query
 
 from db import get_db
-from models import BookmarkOut, BookmarkPatch, BookmarkIdsOut, ProgressOut
+from models import BookmarkOut, BookmarkPatch, BookmarkIdsOut, BookmarkSummaryOut, BookmarkSummariesOut, ProgressOut
 
 router = APIRouter()
 
@@ -55,15 +55,45 @@ async def get_next_bookmark():
 async def get_bookmark_ids(status: list[str] = Query(default=[])):
     db = await get_db()
     try:
+        order_clause = "ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, RANDOM()"
         if status:
             placeholders = ",".join("?" for _ in status)
             rows = await db.execute_fetchall(
-                f"SELECT id FROM bookmarks WHERE status IN ({placeholders}) ORDER BY id ASC",
+                f"SELECT id FROM bookmarks WHERE status IN ({placeholders}) {order_clause}",
                 status,
             )
         else:
-            rows = await db.execute_fetchall("SELECT id FROM bookmarks ORDER BY id ASC")
+            rows = await db.execute_fetchall(f"SELECT id FROM bookmarks {order_clause}")
         return BookmarkIdsOut(ids=[r["id"] for r in rows])
+    finally:
+        await db.close()
+
+
+@router.get("/bookmarks/summaries", response_model=BookmarkSummariesOut)
+async def get_bookmark_summaries(status: list[str] = Query(default=[])):
+    db = await get_db()
+    try:
+        order_clause = "ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, RANDOM()"
+        if status:
+            placeholders = ",".join("?" for _ in status)
+            rows = await db.execute_fetchall(
+                f"SELECT id, url, original_title, custom_title, meta_title, status FROM bookmarks WHERE status IN ({placeholders}) {order_clause}",
+                status,
+            )
+        else:
+            rows = await db.execute_fetchall(
+                f"SELECT id, url, original_title, custom_title, meta_title, status FROM bookmarks {order_clause}"
+            )
+        items = [
+            BookmarkSummaryOut(
+                id=r["id"],
+                title=r["custom_title"] or r["meta_title"] or r["original_title"] or r["url"],
+                url=r["url"],
+                status=r["status"],
+            )
+            for r in rows
+        ]
+        return BookmarkSummariesOut(items=items)
     finally:
         await db.close()
 

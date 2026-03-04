@@ -35,6 +35,11 @@ export async function getBookmarkIds(statuses = []) {
     return request(`/bookmarks/ids${params ? '?' + params : ''}`);
 }
 
+export async function getBookmarkSummaries(statuses = []) {
+    const params = statuses.map(s => `status=${encodeURIComponent(s)}`).join('&');
+    return request(`/bookmarks/summaries${params ? '?' + params : ''}`);
+}
+
 export async function getBookmark(id) {
     return request(`/bookmarks/${id}`);
 }
@@ -121,8 +126,9 @@ export async function cancelScrape() {
     return request('/jobs/scrape/cancel', { method: 'POST' });
 }
 
-export async function startAiSuggest() {
-    return request('/jobs/ai-suggest', { method: 'POST' });
+export async function startAiSuggest(retryFailed = false) {
+    const qs = retryFailed ? '?retry_failed=true' : '';
+    return request(`/jobs/ai-suggest${qs}`, { method: 'POST' });
 }
 
 export async function cancelAiSuggest() {
