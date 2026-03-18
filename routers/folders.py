@@ -378,10 +378,13 @@ async def preview_export():
         placed_ids: set[int] = set()  # track for "first" mode
 
         # Build a folder sort key for "first matching folder" logic
-        # Sort key: (sort_order, id) — but we need the effective ordering
         folder_order: dict[int, int] = {}
         for idx, f in enumerate(folders):
             folder_order[f["id"]] = idx
+
+        # Determine leaf folders (folders with no children)
+        parent_ids = {f["parent_id"] for f in folders if f["parent_id"]}
+        leaf_folder_ids = {f["id"] for f in folders if f["id"] not in parent_ids}
 
         for bm in bm_rows:
             bm_dict = {
@@ -397,11 +400,13 @@ async def preview_export():
                 unassigned.append(bm_dict)
                 continue
 
-            # Find matching folders for this bookmark's tags
+            # Find matching leaf folders for this bookmark's tags
             matching_folders: set[int] = set()
             for tid in bm_tags:
                 if tid in tag_to_folder:
-                    matching_folders.add(tag_to_folder[tid])
+                    fid = tag_to_folder[tid]
+                    if fid in leaf_folder_ids:
+                        matching_folders.add(fid)
 
             if not matching_folders:
                 unassigned.append(bm_dict)

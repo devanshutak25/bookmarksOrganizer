@@ -562,8 +562,6 @@ nav {
     display: flex;
     flex-wrap: wrap;
     gap: 0.3rem;
-    max-height: 150px;
-    overflow-y: auto;
     margin-top: 0.35rem;
     padding: 0.4rem;
     border: 0.5px solid var(--border);
@@ -654,6 +652,7 @@ nav {
     border-radius: 0;
     padding: 1.25rem;
     box-shadow: none;
+    min-width: 0;
 }
 
 .panel-header {
@@ -815,10 +814,15 @@ nav {
     max-height: 400px;
     overflow-y: auto;
     font-family: var(--mono);
+    overflow-x: hidden;
+    min-width: 0;
+    width: 100%;
 }
 
 .preview-folder-node {
     margin-left: 0.75rem;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .preview-folder-node > summary {
@@ -846,6 +850,7 @@ nav {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 100%;
 }
 
 /* --- Export page --- */
