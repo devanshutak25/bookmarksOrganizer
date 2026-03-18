@@ -338,5 +338,7 @@ function tagColor(name) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
     const h = Math.abs(hash) % 360;
-    return `hsl(${h}, 55%, 80%)`;
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark' ||
+        (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    return isDark ? `hsl(${h}, 50%, 35%)` : `hsl(${h}, 55%, 80%)`;
 }
